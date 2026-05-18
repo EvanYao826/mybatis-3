@@ -18,10 +18,15 @@ package org.apache.ibatis.submitted.keygen;
 import static com.googlecode.catchexception.apis.BDDCatchException.caughtException;
 import static com.googlecode.catchexception.apis.BDDCatchException.when;
 import static org.assertj.core.api.BDDAssertions.then;
+import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
 import java.io.Reader;
+import java.sql.ResultSet;
+import java.sql.Statement;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
@@ -32,7 +37,9 @@ import java.util.Set;
 
 import org.apache.ibatis.BaseDataTest;
 import org.apache.ibatis.exceptions.PersistenceException;
+import org.apache.ibatis.executor.keygen.Jdbc3KeyGenerator;
 import org.apache.ibatis.io.Resources;
+import org.apache.ibatis.mapping.MappedStatement;
 import org.apache.ibatis.session.ExecutorType;
 import org.apache.ibatis.session.SqlSession;
 import org.apache.ibatis.session.SqlSessionFactory;
@@ -610,5 +617,28 @@ class Jdbc3KeyGeneratorTest {
         sqlSession.rollback();
       }
     }
+  }
+
+  /**
+   * Verifies that Jdbc3KeyGenerator handles a null ResultSet from getGeneratedKeys() gracefully.
+   * <p>
+   * Some JDBC drivers (e.g. certain versions/configurations of the DB2 driver) return {@code null}
+   * from {@link Statement#getGeneratedKeys()} instead of an empty ResultSet. Without the null
+   * check, this causes an NPE on {@code rs.getMetaData()}.
+   * <p>
+   * See <a href="https://github.com/mybatis/mybatis-3/pull/3692">PR #3692</a>.
+   */
+  @Test
+  void shouldNotThrowNpeWhenGetGeneratedKeysReturnsNull() throws Exception {
+    // Create a mock Statement whose getGeneratedKeys() returns null
+    Statement stmt = mock(Statement.class);
+    when(stmt.getGeneratedKeys()).thenReturn(null);
+
+    // Create a mock MappedStatement with non-empty keyProperties
+    MappedStatement ms = mock(MappedStatement.class);
+    when(ms.getKeyProperties()).thenReturn(new String[] { "id" });
+
+    // Without the null check in processBatch, this would throw NPE at rs.getMetaData()
+    assertDoesNotThrow(() -> Jdbc3KeyGenerator.INSTANCE.processBatch(ms, stmt, new Object()));
   }
 }
